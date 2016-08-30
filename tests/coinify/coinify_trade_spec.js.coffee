@@ -140,7 +140,7 @@ describe "CoinifyTrade", ->
               catch: () ->
             }
         }
-        POST: () -> Promise.resolve('something')
+        POST: () -> Promise.resolve(tradeJSON)
         login: () -> {
           then: (cb) ->
             cb({access_token: 'my-token', expires_in: 1000})
@@ -166,8 +166,27 @@ describe "CoinifyTrade", ->
         expect(trade._inCurrency).toBe(tradeJSON.inCurrency)
 
     describe "removeLabeledAddress()", ->
-       it "set new object and does not change id or date", ->
-         pending()
+      account = undefined
+      beforeEach ->
+        trade._account_index = 0
+        trade._receive_index = 10
+        account = MyWallet.wallet.hdwallet.accounts[0]
+        account.removeLabelForReceivingAddress = () ->
+        account.setLabelForReceivingAddress = () ->
+
+      describe "with a single order", ->
+        it "should remove the label", ->
+          spyOn(account, "removeLabelForReceivingAddress")
+          account.getLabelForReceivingAddress = () -> "Coinify order #" + trade.id
+          trade.removeLabeledAddress()
+          expect(account.removeLabelForReceivingAddress).toHaveBeenCalledWith(10)
+
+      describe "with multiple orders", ->
+        it "should edit the label", ->
+          spyOn(account, "setLabelForReceivingAddress")
+          account.getLabelForReceivingAddress = () -> "Coinify order #123, #" + trade.id + ", #456"
+          trade.removeLabeledAddress()
+          expect(account.setLabelForReceivingAddress).toHaveBeenCalledWith(10, "Coinify order #123, #456")
 
     describe "cancel()", ->
       beforeEach ->
@@ -222,10 +241,25 @@ describe "CoinifyTrade", ->
         pending()
 
     describe "buy()", ->
-      it "should fail if gap limit", (done) ->
-        MyWallet.wallet.hdwallet.accounts[0].receiveIndex = 20
-        MyWallet.wallet.hdwallet.accounts[0].lastUsedReceiveIndex = 0
-        expect(CoinifyTrade.buy({})).toBeRejectedWith('gap_limit', done)
+      account = undefined
+
+      beforeEach ->
+        account = MyWallet.wallet.hdwallet.accounts[0]
+        account.receiveIndex = 20
+        account.lastUsedReceiveIndex = 0
+        account.receiveAddressAtIndex = () -> '1ABC'
+        account.setLabelForReceivingAddress = () ->
+
+      it "should fail if gap limit and there are no Coinify labels", (done) ->
+        account.getLabelForReceivingAddress = () -> ""
+        expect(CoinifyTrade.buy({})).toBeRejectedWith("gap_limit", done)
+
+      it "should append the order number in order to stay within gap limit", (done) ->
+        account.getLabelForReceivingAddress = () -> "Coinify order #123"
+        spyOn(account, "setLabelForReceivingAddress")
+        CoinifyTrade.buy({}, '', coinify).then ->
+          expect(account.setLabelForReceivingAddress).toHaveBeenCalledWith(19, "Coinify order #123, #1142")
+          done()
 
     describe "buy()", ->
       it "should POST the quote and add the received trade to the list", (done) ->

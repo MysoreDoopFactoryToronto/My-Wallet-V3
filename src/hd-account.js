@@ -265,7 +265,7 @@ HDAccount.reviver = function (k, v) {
 };
 
 HDAccount.prototype.incrementReceiveIndex = function () {
-  this._receiveIndex++;
+  this.receiveIndex++;
   return this;
 };
 HDAccount.prototype.incrementReceiveIndexIfLast = function (index) {
@@ -275,7 +275,7 @@ HDAccount.prototype.incrementReceiveIndexIfLast = function (index) {
   return this;
 };
 HDAccount.prototype.decrementReceiveIndex = function () {
-  this._receiveIndex--;
+  this.receiveIndex--;
   return this;
 };
 HDAccount.prototype.decrementReceiveIndexIfLast = function (index) {

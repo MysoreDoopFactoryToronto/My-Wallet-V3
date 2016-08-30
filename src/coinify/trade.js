@@ -164,10 +164,15 @@ CoinifyTrade.prototype.set = function (obj) {
 };
 
 CoinifyTrade.prototype.removeLabeledAddress = function () {
-  var account;
-  if (this._account_index && Helpers.isPositiveInteger(this._receive_index)) {
-    account = MyWallet.wallet.hdwallet.accounts[this._account_index];
-    account.removeLabelForReceivingAddress(this._receive_index);
+  if (Helpers.isPositiveInteger(this._account_index) && Helpers.isPositiveInteger(this._receive_index)) {
+    var account = MyWallet.wallet.hdwallet.accounts[this._account_index];
+    var currentLabel = account.getLabelForReceivingAddress(this._receive_index);
+    if (currentLabel === 'Coinify order #' + this.id) {
+      account.removeLabelForReceivingAddress(this._receive_index);
+    } else if (/^Coinify order (#\d+,\s)+/.test(currentLabel)) {
+      var editedLabel = currentLabel.replace('#' + this.id + ', ', '').replace(', #' + this.id, '');
+      account.setLabelForReceivingAddress(this._receive_index, editedLabel);
+    }
   }
 };
 
@@ -176,9 +181,7 @@ CoinifyTrade.prototype.cancel = function () {
 
   var processCancel = function (trade) {
     self._state = trade.state;
-
-    self.removeLabeledAddress.bind(self)();
-
+    self.removeLabeledAddress();
     return self._coinify.save();
   };
 
@@ -274,15 +277,28 @@ CoinifyTrade.buy = function (quote, medium, coinify) {
   var account = MyWallet.wallet.hdwallet.defaultAccount;
 
   var receiveAddressIndex = account.receiveIndex;
+  var baseLabel = 'Coinify order #';
 
   // Respect the GAP limit:
   if (receiveAddressIndex - account.lastUsedReceiveIndex >= 19) {
-    return Promise.reject('gap_limit');
+    var orderRegex = /^Coinify order (#\d+,\s)*(#\d+)$/;
+    for (var i = 1; i < 20; i++) {
+      var idx = receiveAddressIndex - i;
+      var label = account.getLabelForReceivingAddress(idx);
+      if (orderRegex.test(label)) {
+        receiveAddressIndex = idx;
+        baseLabel = label + ', #';
+        break;
+      }
+      if (i === 19) {
+        return Promise.reject('gap_limit');
+      }
+    }
   }
 
   var processTrade = function (res) {
     var trade = new CoinifyTrade(res, coinify);
-    account.setLabelForReceivingAddress(receiveAddressIndex, 'Coinify order #' + trade.id);
+    account.setLabelForReceivingAddress(receiveAddressIndex, baseLabel + trade.id);
     trade._account_index = account.index;
     trade._receive_index = receiveAddressIndex;
     coinify._trades.push(trade);
@@ -321,11 +337,8 @@ CoinifyTrade.fetchAll = function (coinify) {
         }
 
         // Remove labeled address if trade is cancelled, rejected or expired
-        if (Helpers.isPositiveInteger(trade._account_index)) {
-          var account = MyWallet.wallet.hdwallet.accounts[trade._account_index];
-          if (['rejected', 'cancelled', 'expired'].indexOf(trade.state) > -1) {
-            account.removeLabelForReceivingAddress(trade._receive_index);
-          }
+        if (['rejected', 'cancelled', 'expired'].indexOf(trade.state) > -1) {
+          trade.removeLabeledAddress();
         }
         trade = undefined;
       }
